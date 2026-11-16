@@ -75,13 +75,23 @@ public func freeMatch(_ pattern: String, _ args: [String]) -> Bool {
     return args.count == words.count || last.hasSuffix("*")
 }
 
+/// A gated-argument pattern matches an argument by shell glob. A single-letter flag pattern such as
+/// "-u*" also matches that letter inside a cluster of short flags ("-vu URL" sets -u too).
+public func gatedArgMatch(_ pattern: String, _ arg: String) -> Bool {
+    if fnmatch(pattern, arg, 0) == 0 { return true }
+    let p = Array(pattern), a = Array(arg)
+    guard p.count == 2 || (p.count == 3 && p[2] == "*"), p[0] == "-", p[1].isLetter,
+          a.count > 2, a[0] == "-", a[1] != "-" else { return false }
+    return a.dropFirst().prefix { $0.isLetter }.contains(p[1])
+}
+
 public func verdict(cli: String, args: [String], rules: RulesDoc) -> Verdict {
     guard let rule = rules.clis[cli] else {
         return Verdict(kind: .asks, reason: "\(cli) has no rules, so every call asks")
     }
     if rule.isOff { return Verdict(kind: .runs, reason: "gating is off for \(cli)") }
     for arg in args {
-        for p in rule.gatedArgs ?? [] where fnmatch(p, arg, 0) == 0 {
+        for p in rule.gatedArgs ?? [] where gatedArgMatch(p, arg) {
             return Verdict(kind: .asks, reason: "the argument \(arg) always asks (\(p))")
         }
     }
@@ -149,10 +159,11 @@ public let templates: [Template] = [
     Template(name: "vault", summary: "HashiCorp Vault", symbol: "lock.shield",
              free: [], gatedArgs: ["-address*", "--address*"]),
     Template(name: "hcloud", summary: "Hetzner Cloud", symbol: "server.rack",
-             free: ["* list*", "* describe*", "context list", "version", "--help", "* --help"], gatedArgs: []),
+             free: ["* list*", "* describe*", "context list", "version", "--help", "* --help"],
+             gatedArgs: ["--endpoint*", "--config*", "--context*"]),
     Template(name: "doctl", summary: "DigitalOcean", symbol: "drop",
              free: ["* list*", "* get*", "account get*", "version", "--help", "* --help"],
-             gatedArgs: ["--api-url*", "-u*", "--access-token*", "-t*"]),
+             gatedArgs: ["--api-url*", "-u*", "--access-token*", "-t*", "--config*", "-c*", "--context*"]),
     Template(name: "stripe", summary: "Stripe", symbol: "creditcard",
              free: ["--version", "version", "config *", "login status*", "--help", "* --help"],
              gatedArgs: ["--api-base*", "--api-key*", "--live"]),

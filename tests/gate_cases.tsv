@@ -36,3 +36,9 @@ gated	rd	jobs purge -p x --confirm
 gated	doctl	compute droplet list --api-url=https://example.invalid
 gated	stripe	config --list --api-key=sk_test_x
 gated	vault	status -address=https://example.invalid
+# redirect flags on a free call always ask, also inside a cluster of short flags
+gated	hcloud	server list --endpoint https://x.invalid
+gated	hcloud	server list --config /tmp/c.toml
+gated	doctl	compute droplet list -vu https://x.invalid
+gated	doctl	compute droplet list -c /tmp/c.yaml
+free	doctl	compute droplet list --output json

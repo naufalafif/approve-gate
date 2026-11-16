@@ -74,12 +74,22 @@ func freeMatch(_ pattern: String, _ args: [String]) -> Bool {
     return args.count == words.count || last.hasSuffix("*")
 }
 
+/// A gated-argument pattern matches an argument by shell glob. A single-letter flag pattern such as
+/// "-u*" also matches that letter inside a cluster of short flags ("-vu URL" sets -u too).
+func gatedArgMatch(_ pattern: String, _ arg: String) -> Bool {
+    if fnmatch(pattern, arg, 0) == 0 { return true }
+    let p = Array(pattern), a = Array(arg)
+    guard p.count == 2 || (p.count == 3 && p[2] == "*"), p[0] == "-", p[1].isLetter,
+          a.count > 2, a[0] == "-", a[1] != "-" else { return false }
+    return a.dropFirst().prefix { $0.isLetter }.contains(p[1])
+}
+
 /// "free" or "gated". Free patterns match word by word (freeMatch). No rules,
 /// or a CLI without rules, means gated. A gated argument makes the whole call gated.
 func gateDecision(cli: String, args: [String], rules: Rules?) -> String {
     guard let rule = rules?.clis[cli] else { return "gated" }
     for arg in args {
-        for pattern in rule.gatedArgs ?? [] where fnmatch(pattern, arg, 0) == 0 { return "gated" }
+        for pattern in rule.gatedArgs ?? [] where gatedArgMatch(pattern, arg) { return "gated" }
     }
     for pattern in rule.free ?? [] where freeMatch(pattern, args) {
         return "free"
@@ -125,8 +135,11 @@ func resolveReal(_ name: String, _ rule: CLIRule?) -> String {
         }
         // A CLI that gets secrets must be a file nothing running as you can replace: otherwise a
         // program could swap in its own script and receive the secret on the next free call.
-        if systemMode, rule?.hasSecrets == true, !rootOwnedChain(p) {
-            die("\(name) gets secrets, so its path (\(p)) and every folder above it must be root-owned and not writable by others", 127)
+        if systemMode, rule?.hasSecrets == true {
+            guard rootOwnedChain(p), let resolved = realPath(p) else {
+                die("\(name) gets secrets, so its path (\(p)) and every folder above it must be root-owned and not writable by others", 127)
+            }
+            return resolved // run the file that was checked, not a path whose links could change later
         }
         return p
     }
@@ -138,6 +151,15 @@ func resolveReal(_ name: String, _ rule: CLIRule?) -> String {
 /// True when the file (after resolving links) and every folder up to / are owned by root (the test
 /// build: also by you) and writable by nobody else.
 func rootOwnedChain(_ path: String) -> Bool {
+    // The path as written: every component (links included) must sit in folders nobody else can
+    // change, so no link along it can be repointed between this check and the exec.
+    var q = path
+    while q != "/" {
+        var st = stat()
+        guard lstat(q, &st) == 0, st.st_uid == 0 || st.st_uid == systemOwner else { return false }
+        if (st.st_mode & S_IFMT) != S_IFLNK, st.st_mode & 0o022 != 0 { return false }
+        q = (q as NSString).deletingLastPathComponent
+    }
     guard var p = realPath(path) else { return false }
     while true {
         var st = stat()
@@ -153,7 +175,10 @@ func brokerEnvironment(_ name: String, _ rule: CLIRule?) -> [String: String]? {
     guard let rule, let wanted = rule.env, !wanted.isEmpty else { return nil }
     let current = ProcessInfo.processInfo.environment
     var env: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
-    for k in ["USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "TZ", "TMPDIR"] { env[k] = current[k] }
+    for k in ["USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "TZ"] { env[k] = current[k] }
+    // The system's per-user temp folder, not a TMPDIR the caller chose.
+    var buf = [CChar](repeating: 0, count: Int(PATH_MAX))
+    if confstr(_CS_DARWIN_USER_TEMP_DIR, &buf, buf.count) > 0 { env["TMPDIR"] = String(cString: buf) }
     if rule.home == "user" {
         env["HOME"] = home
     } else {
@@ -194,7 +219,9 @@ func execReal(_ path: String, _ args: [String], env: [String: String]? = nil) ->
 func sudoFallback(_ name: String, _ argsText: String) -> Bool {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-    p.arguments = ["-k", "-p", "approve: authenticate to run '\(argsText)': ", "--", "true"]
+    // sudo expands %-sequences in its prompt; the command text is the caller's, so escape them.
+    let shown = argsText.count > 200 ? String(argsText.prefix(200)) + "… (\(argsText.count) characters)" : argsText
+    p.arguments = ["-k", "-p", "approve: authenticate to run '\(shown.replacingOccurrences(of: "%", with: "%%"))': ", "--", "true"]
     guard (try? p.run()) != nil else { return false }
     p.waitUntilExit()
     return p.terminationStatus == 0

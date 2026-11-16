@@ -28,12 +28,13 @@ enum Snapshot {
             ("7-activity", AnyView(ActivityPage())),
             ("8-add-command", AnyView(AddCommandSheet { _ in })),
             ("9-pair", AnyView(PairPreview())),
+            ("9b-pair-code", AnyView(PairCodePreview())),
         ]
         for (name, view) in pages {
             // The same page with the first command's gating turned off, in the draft only (never saved).
             if name == "2b-commands-off", let first = store.draft?.clis.keys.sorted().first { store.update(first) { $0.disabled = true } }
             if name == "3-approval" { store.revert() }
-            let size = name == "8-add-command" ? NSSize(width: 600, height: 470) : name == "9-pair" ? NSSize(width: 420, height: 470) : NSSize(width: 720, height: 640)
+            let size = name == "8-add-command" ? NSSize(width: 600, height: 470) : name.hasPrefix("9") ? NSSize(width: 420, height: 470) : NSSize(width: 720, height: 640)
             let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, dark ? .dark : .light))
@@ -60,9 +61,27 @@ struct PairPreview: View {
                 .frame(width: 240, height: 240).padding(10).background(.white, in: RoundedRectangle(cornerRadius: 12))
             VStack(spacing: 4) {
                 Text("Scan with the Approve Gate app").font(.headline)
-                Text("Open the app, tap Scan pairing code, then confirm with your fingerprint. Then approve saving it with Touch ID on this Mac.")
+                Text("Open the app, tap Scan pairing code, then confirm with your fingerprint. The phone then shows a code; this Mac shows the same code before you approve.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
+            HStack { Spacer(); Button("Cancel") {} }
+        }
+        .padding(24)
+    }
+}
+
+/// The pairing sheet once a phone has answered: the code to compare (sample values).
+struct PairCodePreview: View {
+    var body: some View {
+        VStack(spacing: 18) {
+            Text("Pair a phone").font(.title2.bold())
+            VStack(spacing: 12) {
+                Image(systemName: "touchid").font(.system(size: 54)).foregroundStyle(.pink)
+                Text("Check the code").font(.headline)
+                Text("482 913").font(.system(size: 34, weight: .semibold, design: .monospaced))
+                Text("Pixel 8 answered. Approve with Touch ID only if your phone shows this same code. If it shows a different code, deny: another program tried to pair.")
+                    .multilineTextAlignment(.center).foregroundStyle(.secondary)
+            }.frame(height: 300)
             HStack { Spacer(); Button("Cancel") {} }
         }
         .padding(24)

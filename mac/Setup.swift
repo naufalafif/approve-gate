@@ -8,7 +8,7 @@
 
 import Foundation
 
-let approveVersion = "0.7.1"
+let approveVersion = "0.7.2"
 #if APPROVE_TEST
 // Test build: the "root-owned" install goes into the test folder, owned by you (tests/e2e.sh).
 let systemBinary = "\(configDir)/libexec/approve-gate/approve"

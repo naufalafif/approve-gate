@@ -61,6 +61,11 @@
         "placement-group describe*",
         "server-type list*",
         "server-type describe*"
+      ],
+      "gatedArgs": [
+        "--endpoint*",
+        "--config*",
+        "--context*"
       ]
     },
     "doctl": {
@@ -106,7 +111,10 @@
         "--api-url*",
         "-u*",
         "--access-token*",
-        "-t*"
+        "-t*",
+        "--config*",
+        "-c*",
+        "--context*"
       ]
     },
     "stripe": {

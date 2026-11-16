@@ -28,6 +28,7 @@ class ApproveActivity : AppCompatActivity() {
     private lateinit var progress: android.widget.ProgressBar
     private var total = 0L
     private var finished = false
+    private var prompt: BiometricPrompt? = null
     private val handler = Handler(Looper.getMainLooper())
     private val onCancel: (String) -> Unit = { id ->
         if (id == req.optString("id")) runOnUiThread { done("Answered on the Mac", Ui.MUTED) }
@@ -43,6 +44,10 @@ class ApproveActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handler.removeCallbacksAndMessages(null)
+        // A newer request replaces the screen: close a fingerprint prompt that was opened for the old
+        // one, so one fingerprint can never sign a request the prompt did not show.
+        prompt?.cancelAuthentication()
+        prompt = null
         finished = false
         load(intent)
     }
@@ -137,6 +142,9 @@ class ApproveActivity : AppCompatActivity() {
         } catch (e: Exception) {
             say("Signing key unavailable: ${e.message}", Ui.DANGER); return
         }
+        // Bind the signature to the request shown in this prompt, even if a newer one arrives.
+        val shownPlain = plain
+        val shownId = req.optString("id")
         val cmd = req.optString("command")
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle((if (req.optBoolean("production")) "PRODUCTION: " else "") + "Approve ${req.optString("cli")}")
@@ -146,27 +154,33 @@ class ApproveActivity : AppCompatActivity() {
             .setAllowedAuthenticators(BIOMETRIC_STRONG)
             .setConfirmationRequired(true)
             .build()
-        BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
+        val bp = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                prompt = null
+                if (shownId != req.optString("id")) return // the screen moved on to another request
                 val s = result.cryptoObject?.signature ?: return
                 // Sign the request's SHA-256, not the request itself: StrongBox chips (Xiaomi, Pixel)
                 // lose the fingerprint authorisation when a long message is streamed in chunks.
                 val der = try {
-                    s.update(java.security.MessageDigest.getInstance("SHA-256").digest(plain))
+                    s.update(java.security.MessageDigest.getInstance("SHA-256").digest(shownPlain))
                     s.sign()
                 } catch (e: Exception) {
                     say("Signing failed: ${e.message?.take(120)}", Ui.DANGER)
                     return
                 }
-                send(JSONObject().put("type", "response").put("id", req.optString("id")).put("decision", "approve")
+                send(JSONObject().put("type", "response").put("id", shownId).put("decision", "approve")
                     .put("sig", Base64.encodeToString(der, Base64.NO_WRAP)), "Approved", Ui.OK)
             }
             override fun onAuthenticationError(code: Int, msg: CharSequence) {
+                prompt = null
+                if (code == BiometricPrompt.ERROR_CANCELED) return
                 if (code != BiometricPrompt.ERROR_NEGATIVE_BUTTON && code != BiometricPrompt.ERROR_USER_CANCELED) {
                     say(msg, Ui.DANGER)
                 }
             }
-        }).authenticate(info, BiometricPrompt.CryptoObject(sig))
+        })
+        prompt = bp
+        bp.authenticate(info, BiometricPrompt.CryptoObject(sig))
     }
 
     private fun deny() {

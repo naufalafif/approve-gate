@@ -338,10 +338,18 @@ struct PairSheet: View {
                     .padding(10).background(.white, in: RoundedRectangle(cornerRadius: 12))
                 VStack(spacing: 4) {
                     Text("Scan with the Approve Gate app").font(.headline)
-                    Text("Open the app, tap Scan pairing code, then confirm with your fingerprint. Then approve saving it with Touch ID on this Mac.")
+                    Text("Open the app, tap Scan pairing code, then confirm with your fingerprint. The phone then shows a code; this Mac shows the same code before you approve.")
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Text("Relay: \(URL(string: server)?.host ?? server)").font(.caption).foregroundStyle(.tertiary)
                 }
+            case .confirm(let phone, let code):
+                VStack(spacing: 12) {
+                    Image(systemName: "touchid").font(.system(size: 54)).foregroundStyle(.pink)
+                    Text("Check the code").font(.headline)
+                    Text(code).font(.system(size: 34, weight: .semibold, design: .monospaced))
+                    Text("\(phone) answered. Approve with Touch ID only if your phone shows this same code. If it shows a different code, deny: another program tried to pair.")
+                        .multilineTextAlignment(.center).foregroundStyle(.secondary)
+                }.frame(height: 300)
             case .done(let phone):
                 VStack(spacing: 12) {
                     Image(systemName: "checkmark.circle.fill").font(.system(size: 60)).foregroundStyle(.green)
@@ -377,10 +385,11 @@ struct PairSheet: View {
 
 @MainActor
 final class PairSession: ObservableObject {
-    enum State: Equatable { case starting, approving(String), scan(String), done(String), failed(String) }
+    enum State: Equatable { case starting, approving(String), scan(String), confirm(String, String), done(String), failed(String) }
     @Published var state: State = .starting
     private var process: Process?
     private var buffer = ""
+    private var link = ""
 
     func start(server: String) {
         cancel()
@@ -417,7 +426,16 @@ final class PairSession: ObservableObject {
                 let phone = line.dropFirst("Changing the pairing with ".count).components(separatedBy: " needs").first ?? "A phone"
                 state = .approving(phone)
             } else if line.hasPrefix("PAIRLINK ") {
-                state = .scan(String(line.dropFirst("PAIRLINK ".count)))
+                link = String(line.dropFirst("PAIRLINK ".count))
+                state = .scan(link)
+            } else if line.hasPrefix("A phone answered with pairing code ") {
+                // The code is fixed-width and comes first; the name after it is chosen by the phone.
+                let rest = line.dropFirst("A phone answered with pairing code ".count)
+                let code = String(rest.prefix(7))
+                let phone = rest.range(of: "(it says it is ").map { String(rest[$0.upperBound...].dropLast(2)) } ?? "A phone"
+                state = .confirm(phone, code)
+            } else if line.hasPrefix("Not paired with that phone"), !link.isEmpty {
+                state = .scan(link)
             } else if line.hasPrefix("Paired with ") {
                 let phone = line.dropFirst("Paired with ".count).components(separatedBy: ".").first ?? "your phone"
                 state = .done(phone)

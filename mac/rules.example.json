@@ -1,0 +1,173 @@
+{
+  "_comment": "Example rules for approve. Copy to ~/.config/approve-gate/rules.json (make install does this once) and edit there. clis: which calls run without asking. Free patterns are shell globs matched against all arguments joined by spaces; anything else asks. Match --help only as a standalone flag at the end (\"* --help\"), never \"*--help*\", which would also match a value such as description=--help. production: words that mark a target as production (shown in red). guard: hcloud contexts where the Claude Code hook blocks destructive verbs outright. gatedArgs: any single argument matching one of these makes the call ask, even if it would be free (flags that point the CLI at another server or key). path / env / home: turn approve into the CLI's credential broker, see docs/details.md.",
+  "production": [
+    "prod",
+    "live"
+  ],
+  "guard": {
+    "hcloudProductionContexts": [
+      "production"
+    ]
+  },
+  "clis": {
+    "vault": {
+      "default": "gated",
+      "free": [],
+      "_comment": "Every vault call asks.",
+      "gatedArgs": [
+        "-address*",
+        "--address*"
+      ]
+    },
+    "hcloud": {
+      "default": "gated",
+      "free": [
+        "version",
+        "--help",
+        "* --help",
+        "context list",
+        "server list*",
+        "server describe*",
+        "server ssh-key*",
+        "server metrics*",
+        "server image*",
+        "image list*",
+        "image describe*",
+        "snapshot list*",
+        "snapshot describe*",
+        "network list*",
+        "network describe*",
+        "firewall list*",
+        "firewall describe*",
+        "load-balancer list*",
+        "load-balancer describe*",
+        "datacenter list*",
+        "datacenter describe*",
+        "location list*",
+        "location describe*",
+        "iso list*",
+        "iso describe*",
+        "primary-ip list*",
+        "primary-ip describe*",
+        "volume list*",
+        "volume describe*",
+        "ssh-key list*",
+        "ssh-key describe*",
+        "certificate list*",
+        "certificate describe*",
+        "floating-ip list*",
+        "floating-ip describe*",
+        "placement-group list*",
+        "placement-group describe*",
+        "server-type list*",
+        "server-type describe*"
+      ]
+    },
+    "doctl": {
+      "default": "gated",
+      "free": [
+        "version",
+        "--help",
+        "* --help",
+        "account get*",
+        "auth list*",
+        "compute droplet list*",
+        "compute droplet get*",
+        "compute snapshot list*",
+        "compute snapshot get*",
+        "compute image list*",
+        "compute image get*",
+        "compute region list*",
+        "compute size list*",
+        "compute ssh-key list*",
+        "compute ssh-key get*",
+        "compute domain list*",
+        "compute domain records list*",
+        "compute firewall list*",
+        "compute firewall get*",
+        "compute floating-ip list*",
+        "compute floating-ip get*",
+        "compute load-balancer list*",
+        "compute load-balancer get*",
+        "compute reserved-ip list*",
+        "compute reserved-ip get*",
+        "compute volume list*",
+        "compute volume get*",
+        "compute tag list*",
+        "compute tag get*",
+        "compute droplet-action get*",
+        "kubernetes cluster list*",
+        "kubernetes cluster get*",
+        "kubernetes cluster kubeconfig show*",
+        "kubernetes cluster kubeconfig exec-credential*",
+        "kubernetes options *"
+      ],
+      "gatedArgs": [
+        "--api-url*",
+        "-u*",
+        "--access-token*",
+        "-t*"
+      ]
+    },
+    "stripe": {
+      "default": "gated",
+      "free": [
+        "--help",
+        "* --help",
+        "--version",
+        "config *",
+        "login status*",
+        "version"
+      ],
+      "gatedArgs": [
+        "--api-base*",
+        "--api-key*"
+      ]
+    },
+    "kcadm": {
+      "default": "gated",
+      "free": [
+        "",
+        "--help",
+        "-h",
+        "--version",
+        "help*",
+        "get *",
+        "config credentials *",
+        "config truststore *",
+        "config initial-token *"
+      ],
+      "_comment": "Keycloak admin CLI: reads are free, every change asks."
+    },
+    "rd": {
+      "default": "gated",
+      "free": [
+        "--help",
+        "--version",
+        "* --help",
+        "version",
+        "projects list*",
+        "projects info*",
+        "jobs list*",
+        "jobs info*",
+        "jobs forecast*",
+        "executions list*",
+        "executions info*",
+        "executions follow*",
+        "executions query*",
+        "executions state*",
+        "executions output*",
+        "nodes list*",
+        "nodes info*",
+        "keys list*",
+        "keys info*",
+        "tokens list*",
+        "scheduler list*",
+        "scheduler jobs*",
+        "system info*",
+        "metrics *"
+      ],
+      "_comment": "Rundeck CLI: listing and reading are free; running, loading, purging or deleting asks."
+    }
+  }
+}

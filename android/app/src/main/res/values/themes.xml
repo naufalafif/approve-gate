@@ -1,0 +1,24 @@
+<resources>
+    <style name="Theme.Gate" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">#6B3FD4</item>
+        <item name="colorAccent">#6B3FD4</item>
+        <item name="android:windowBackground">#FFFFFF</item>
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="alertDialogTheme">@style/Theme.Gate.Dialog</item>
+    </style>
+
+    <!-- Dialogs: sentence-case purple buttons and rounder corners, matching the screens. -->
+    <style name="Theme.Gate.Dialog" parent="ThemeOverlay.AppCompat.Dialog.Alert">
+        <item name="colorAccent">#6B3FD4</item>
+        <item name="android:dialogCornerRadius">20dp</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Gate.DialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Gate.DialogButton</item>
+    </style>
+
+    <style name="Gate.DialogButton" parent="Widget.AppCompat.Button.ButtonBar.AlertDialog">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">#6B3FD4</item>
+    </style>
+</resources>

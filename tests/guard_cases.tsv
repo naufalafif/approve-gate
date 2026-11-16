@@ -1,0 +1,62 @@
+# expected<TAB>command. Run by tests/run.sh against `approve hook`.
+# The active hcloud context is forced to staging by the test.
+allow	ls -la
+allow	hcloud server list
+allow	HCLOUD_CONTEXT=production hcloud server list
+deny	HCLOUD_CONTEXT=production hcloud server delete web-1
+deny	hcloud --context production server delete web-1
+deny	hcloud server delete web-1 --context production
+deny	hcloud --context=production firewall replace-rules fw --rules-file x.json
+allow	HCLOUD_CONTEXT=staging hcloud server delete web-1
+allow	HCLOUD_CONTEXT=production hcloud server create --name x
+deny	HCLOUD_CONTEXT=production hcloud server poweroff web-1
+deny	HCLOUD_CONTEXT=production hcloud volume detach v1
+deny	HCLOUD_CONTEXT=production hcloud server disable-protection web-1 delete
+deny	echo ok && HCLOUD_CONTEXT=production hcloud server rebuild web-1 --image x
+allow	hcloud context use production
+allow	hcloud version
+deny	curl -H "Authorization: Bearer x" https://api.hetzner.cloud/v1/servers
+deny	HCLOUD_TOKEN=abc hcloud server list
+ask	brew install jq
+ask	pip install requests
+ask	pip3 install requests
+ask	npm install -g typescript
+ask	npm i --global typescript
+allow	npm install typescript
+ask	uv tool install ruff
+ask	uv pip install ruff
+ask	cargo install ripgrep
+# Real binaries by path skip the wrapper; plain names and the link folder go through it
+deny	/opt/homebrew/bin/vault kv get secret/x
+deny	env FOO=1 /opt/homebrew/bin/hcloud server list
+deny	cd /tmp && /usr/local/bin/stripe customers list
+deny	sudo -E /opt/homebrew/bin/doctl compute droplet list
+allow	~/.local/bin/touchid-wrap/vault version
+allow	vault kv get secret/x
+allow	ls -la /opt/homebrew/bin/vault
+allow	which vault
+# Approve Gate's own files, Keychain secrets and the hook
+deny	echo '{}' > ~/.config/approve-gate/rules.json
+deny	rm -rf ~/.local/bin/touchid-wrap
+deny	cp /tmp/x ~/bin/approve
+deny	sed -i '' 's/approve hook/true/' ~/.claude/settings.json
+deny	python3 -c 'open("/Users/me/.config/approve-gate/config.json","w")'
+allow	cat ~/.config/approve-gate/rules.json
+allow	ls ~/.local/bin/touchid-wrap 2>&1
+allow	ls -la ~/.local/bin/touchid-wrap | awk 'NR>3{print $9, $10, $11}'
+allow	jq -r .server ~/.config/approve-gate/config.json > /tmp/server.txt
+deny	cat /tmp/x >> ~/.config/approve-gate/rules.json
+deny	cd /tmp && sudo cp evil "/Library/Application Support/ApproveGate/rules.json"
+allow	jq -r '.hooks.PreToolUse[] | .matcher + " -> " + .hooks[0].command' ~/.claude/settings.json
+deny	security find-generic-password -s approve-gate -a vault-token -w
+deny	security delete-generic-password -s approve-gate -a vault-token
+deny	printf '{"disableAllHooks": true}' > .claude/settings.local.json
+allow	cp "/Library/Application Support/ApproveGate/rules.json" /tmp/rules-backup.json
+allow	cp -p ~/.config/approve-gate/rules.json ./backup.json
+deny	cp /tmp/evil.json "/Library/Application Support/ApproveGate/rules.json"
+deny	cp -R /tmp/x ~/.local/bin/touchid-wrap/
+deny	ditto /tmp/x /usr/local/libexec/approve-gate/approve
+deny	cd ~/.config/approve-gate && printf '{}' | dd of=config.json
+deny	cd "/Library/Application Support/ApproveGate"; cp /tmp/r.json rules.json
+deny	pushd ~/.config/approve-gate && echo x > config.json
+allow	cd ~/.config/approve-gate && cat rules.json

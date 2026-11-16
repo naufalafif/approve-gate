@@ -1,0 +1,38 @@
+# expected<TAB>cli<TAB>args. Run by tests/run.sh against `approve check`, using mac/rules.example.json.
+gated	vault	version
+gated	vault	kv get secret/x
+free	hcloud	server list
+free	hcloud	server list -o json
+free	hcloud	--help
+free	hcloud	server --help
+# patterns match word by word from the start, so a word later in the command is not enough
+gated	hcloud	server create --help
+gated	hcloud	server create --name list
+gated	hcloud	server --help extra
+gated	hcloud	server create --name x
+gated	hcloud	server delete web-1
+gated	hcloud	context active
+free	hcloud	context list
+free	doctl	compute droplet list
+gated	doctl	compute droplet delete 123
+free	doctl	kubernetes options versions
+free	kcadm	get users -r master
+free	kcadm
+gated	kcadm	create users -r master -s username=x
+free	kcadm	config credentials --server http://localhost:8080 --realm master --user admin
+free	rd	jobs list -p x
+gated	rd	run -j y
+free	stripe	--version
+gated	stripe	customers list
+free	stripe	config --list
+gated	unknowncli	anything
+# --help counts only as a standalone flag at the end, never inside a value
+gated	kcadm	update users/x -r master -s description=--help
+gated	hcloud	server delete web-1 --description=--help-me
+gated	doctl	compute droplet delete 123 --help
+# purging executions deletes history, so it asks
+gated	rd	jobs purge -p x --confirm
+# pointing a CLI at another server or key always asks, even for a read
+gated	doctl	compute droplet list --api-url=https://example.invalid
+gated	stripe	config --list --api-key=sk_test_x
+gated	vault	status -address=https://example.invalid

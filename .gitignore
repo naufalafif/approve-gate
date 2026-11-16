@@ -1,0 +1,24 @@
+# Build output
+mac/approve
+tools/fakephone
+android/.gradle/
+android/build/
+android/app/build/
+*.apk
+*.aab
+
+# Never commit signing keys or local SDK paths
+*.jks
+*.keystore
+*.p12
+android/local.properties
+
+.DS_Store
+dist/
+mac/approve-test
+local.mk
+relay/node_modules/
+relay/.cloudflare/
+relay/dist/
+menubar/.build/
+menubar/*.app

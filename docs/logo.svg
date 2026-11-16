@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="216" height="216" role="img" aria-label="Approve Gate logo: a white fingerprint on purple">
+  <!-- Same artwork as the Android app icon (android/app/src/main/res/drawable/ic_launcher.xml),
+       with rounded corners as a launcher shows it. -->
+  <rect width="108" height="108" rx="24" fill="#6B3FD4"/>
+  <path fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"
+        d="M38,60c0,-9 7,-16 16,-16s16,7 16,16M44,72c0,0 2,-4 2,-12c0,-4.4 3.6,-8 8,-8s8,3.6 8,8c0,6 -1,12 -3,16M54,60c0,8 -2,16 -6,20M32,48c5,-7 13,-12 22,-12s17,5 22,12"/>
+</svg>

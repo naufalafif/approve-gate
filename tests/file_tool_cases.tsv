@@ -1,0 +1,12 @@
+# expected<TAB>tool_input JSON for the file tools (Edit, Write, MultiEdit). Run by tests/run.sh.
+# SETTINGS is replaced with a temporary .claude/settings.json that contains the Approve Gate hook.
+deny	{"file_path":"~/.config/approve-gate/rules.json","content":"{}"}
+deny	{"file_path":"/Library/Application Support/ApproveGate/rules.json","content":"{}"}
+deny	{"file_path":"~/.local/bin/touchid-wrap/vault","content":"#!/bin/sh"}
+deny	{"file_path":"/tmp/project/.claude/settings.local.json","content":"{\"disableAllHooks\": true}"}
+deny	{"file_path":"SETTINGS","old_string":"\"command\": \"~/bin/approve hook\"","new_string":"\"command\": \"true\""}
+deny	{"file_path":"SETTINGS","content":"{}"}
+deny	{"file_path":"SETTINGS","edits":[{"old_string":"approve hook","new_string":"true"}]}
+allow	{"file_path":"SETTINGS","old_string":"\"theme\": \"light\"","new_string":"\"theme\": \"dark\""}
+allow	{"file_path":"/tmp/notes.md","content":"hello"}
+allow	{"file_path":"/tmp/repo/menubar/Sources/ApproveGateBar/App.swift","content":"import SwiftUI"}

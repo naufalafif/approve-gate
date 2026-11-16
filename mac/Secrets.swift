@@ -112,7 +112,7 @@ func runSecret(_ argv: [String]) async {
             die("usage: approve secret \(sub) NAME   (letters, digits, . _ -)")
         }
         let name = argv[1]
-        await guardPairingChange("secret \(sub) \(name)")
+        await guardPairingChange("secret \(sub) \(name)", terminalCanApprove: false)
         if sub == "rm" {
             print(deleteSecret(name) ? "Removed \(name)." : "No secret named \(name).")
             return

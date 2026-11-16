@@ -65,10 +65,11 @@ let templates: [Template] = [
              gatedArgs: ["--kube-context*", "--kubeconfig*"]),
     Template(name: "vault", summary: "HashiCorp Vault", free: [], gatedArgs: ["-address*", "--address*"]),
     Template(name: "hcloud", summary: "Hetzner Cloud",
-             free: ["* list*", "* describe*", "context list", "version", "--help", "* --help"], gatedArgs: []),
+             free: ["* list*", "* describe*", "context list", "version", "--help", "* --help"],
+             gatedArgs: ["--endpoint*", "--config*", "--context*"]),
     Template(name: "doctl", summary: "DigitalOcean",
              free: ["* list*", "* get*", "account get*", "version", "--help", "* --help"],
-             gatedArgs: ["--api-url*", "-u*", "--access-token*", "-t*"]),
+             gatedArgs: ["--api-url*", "-u*", "--access-token*", "-t*", "--config*", "-c*", "--context*"]),
     Template(name: "stripe", summary: "Stripe",
              free: ["--version", "version", "config *", "login status*", "--help", "* --help"],
              gatedArgs: ["--api-base*", "--api-key*", "--live"]),
@@ -153,40 +154,61 @@ private func template(for name: String) -> Template? { templates.first { $0.name
 
 /// Applies one change to the rules: diff, the gate, the write, then the links if commands changed.
 /// What a whole-file rules change does, in words, for the approval prompt (the diff only reaches the
-/// caller's output, and the approver must see what they approve). Paths and secrets are named.
+/// caller's output, and the approver must see what they approve). Changes to commands already gated
+/// come first, each with its old and new value; secrets are named, never shown. writeSettings refuses
+/// a summary too long for the prompt, so nothing is ever cut off.
 func describeRulesChange(old: Data?, new: Data) -> String {
     func obj(_ d: Data?) -> JSON { d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? JSON } ?? [:] }
     func same(_ a: Any?, _ b: Any?) -> Bool {
         switch (a, b) { case (nil, nil): return true; case let (x?, y?): return (x as AnyObject).isEqual(y); default: return false }
     }
+    func show(_ v: Any?) -> String {
+        guard let v else { return "none" }
+        if let s = v as? String { return s }
+        if let b = v as? Bool { return b ? "true" : "false" }
+        let d = (try? JSONSerialization.data(withJSONObject: v, options: [.sortedKeys, .fragmentsAllowed])) ?? Data()
+        return String(data: d, encoding: .utf8) ?? "?"
+    }
+    func list(_ v: Any?) -> [String] { v as? [String] ?? [] }
+    func addRemove(_ a: Any?, _ b: Any?) -> String {
+        let add = list(b).filter { !list(a).contains($0) }, rm = list(a).filter { !list(b).contains($0) }
+        return (add.map { " +\($0)" } + rm.map { " -\($0)" }).joined()
+    }
+    func everythingFree(_ r: JSON) -> Bool { list(r["free"]).contains("*") || r["default"] as? String == "free" }
     let o = obj(old), n = obj(new)
     let oc = o["clis"] as? JSON ?? [:], nc = n["clis"] as? JSON ?? [:]
     var parts: [String] = []
-    func detail(_ r: JSON) -> String {
-        var d: [String] = []
-        if let p = r["path"] as? String { d.append("path \(p)") }
-        let secrets = (r["env"] as? [String: String] ?? [:]).values.filter { $0.hasPrefix("secret:") }
-        if !secrets.isEmpty { d.append("secrets " + secrets.sorted().joined(separator: ",")) }
-        if (r["free"] as? [String])?.contains(where: { $0 == "*" }) == true || r["default"] as? String == "free" { d.append("EVERYTHING FREE") }
-        return d.isEmpty ? "" : " (" + d.joined(separator: ", ") + ")"
-    }
-    for k in nc.keys.sorted() where oc[k] == nil { parts.append("gate \(k)" + detail(nc[k] as? JSON ?? [:])) }
-    for k in oc.keys.sorted() where nc[k] == nil { parts.append("stop gating \(k)") }
     for k in nc.keys.sorted() {
         guard let a = oc[k] as? JSON, let b = nc[k] as? JSON, !same(a, b) else { continue }
-        let fields = Set(a.keys).union(b.keys).filter { !same(a[$0], b[$0]) }.sorted()
-        var t = "\(k): " + fields.map { f -> String in
-            if f == "free" {
-                let add = (b[f] as? [String] ?? []).filter { !(a[f] as? [String] ?? []).contains($0) }
-                let rm = (a[f] as? [String] ?? []).filter { !(b[f] as? [String] ?? []).contains($0) }
-                return "free" + (add.isEmpty ? "" : " +" + add.joined(separator: " +")) + (rm.isEmpty ? "" : " -" + rm.joined(separator: " -"))
+        var items: [String] = []
+        for f in Set(a.keys).union(b.keys).subtracting(["_comment"]).sorted() where !same(a[f], b[f]) {
+            switch f {
+            case "free", "gatedArgs": items.append(f + addRemove(a[f], b[f]))
+            case "env":
+                let ea = a[f] as? [String: String] ?? [:], eb = b[f] as? [String: String] ?? [:]
+                for key in Set(ea.keys).union(eb.keys).sorted() where ea[key] != eb[key] {
+                    items.append("env \(key) \(ea[key] ?? "none") -> \(eb[key] ?? "none")")
+                }
+            case "disabled": items.append((b[f] as? Bool) == true ? "gating off" : "gating on")
+            default: items.append("\(f) \(show(a[f])) -> \(show(b[f]))")
             }
-            return f
-        }.joined(separator: ", ")
-        t += detail(b).isEmpty || (same(a["path"], b["path"]) && same(a["env"], b["env"])) ? "" : detail(b)
-        parts.append(t)
+        }
+        if everythingFree(b), !everythingFree(a) { items.append("EVERYTHING FREE") }
+        parts.append("\(k): " + items.joined(separator: ", "))
     }
-    for k in Set(o.keys).union(n.keys).subtracting(["clis", "_comment"]).sorted() where !same(o[k], n[k]) { parts.append("\(k) settings") }
+    for k in oc.keys.sorted() where nc[k] == nil { parts.append("stop gating \(k)") }
+    for k in nc.keys.sorted() where oc[k] == nil {
+        let r = nc[k] as? JSON ?? [:]
+        var d: [String] = []
+        if let p = r["path"] as? String { d.append("path \(p)") }
+        let secrets = (r["env"] as? [String: String] ?? [:]).filter { $0.value.hasPrefix("secret:") }.keys.sorted()
+        if !secrets.isEmpty { d.append("secrets " + secrets.joined(separator: ",")) }
+        if everythingFree(r) { d.append("EVERYTHING FREE") }
+        parts.append("gate \(k)" + (d.isEmpty ? "" : " (" + d.joined(separator: ", ") + ")"))
+    }
+    for k in Set(o.keys).union(n.keys).subtracting(["clis", "_comment"]).sorted() where !same(o[k], n[k]) {
+        parts.append("\(k) \(show(o[k])) -> \(show(n[k]))")
+    }
     return visible(parts.joined(separator: "; "))
 }
 
@@ -253,7 +275,10 @@ func runRules(_ argv: [String]) -> Never {
     case "install":
         let file = arg(0, "install FILE")
         guard let data = FileManager.default.contents(atPath: file),
-              (try? JSONDecoder().decode(Rules.self, from: data)) != nil else { die("\(file) is not valid rules JSON") }
+              let parsed = try? JSONDecoder().decode(Rules.self, from: data) else { die("\(file) is not valid rules JSON") }
+        if let bad = parsed.clis.keys.sorted().first(where: { !validCLIName($0) }) {
+            die("\(visible(String(bad.prefix(60)))) is not a command name (letters, digits, . _ -; not approve…)")
+        }
         if FileManager.default.fileExists(atPath: rulesPath) { showDiff(data) }
         let summary = describeRulesChange(old: readSettings(rulesPath), new: data)
         if summary.isEmpty { print("Nothing to change: the rules are the same"); exit(0) }

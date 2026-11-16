@@ -57,7 +57,20 @@ func loadConfig() -> Config? {
 func saveConfig(_ c: Config) throws {
     let enc = JSONEncoder()
     enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-    try writeSettings(try enc.encode(c), configPath, reason: "save the pairing with \(c.phoneName ?? "a phone")")
+    // The code comes first: the phone name is chosen by whoever answered, so it goes last and short.
+    let what = c.phonePublicKey.map { "pairing code \(pairingCode($0)): approve only if your phone shows this code (it says it is \(String((c.phoneName ?? "a phone").prefix(40))))" }
+        ?? "save the pairing with \(c.phoneName ?? "a phone")"
+    try writeSettings(try enc.encode(c), configPath, reason: what)
+}
+
+/// Six-digit code for a phone's public key (its Base64 text). The phone shows the code of its own
+/// key and the Mac's approval prompt shows the code of the key it is about to save, so a key paired
+/// by another program shows a different code. Same formula as the Android app (Gate.pairingCode).
+func pairingCode(_ publicKeyB64: String) -> String {
+    let h = Array(SHA256.hash(data: Data("approvegate-pair-code:\(publicKeyB64)".utf8)))
+    let n = (UInt32(h[0]) << 24 | UInt32(h[1]) << 16 | UInt32(h[2]) << 8 | UInt32(h[3])) % 1_000_000
+    let code = String(format: "%06u", n)
+    return String(code.prefix(3)) + " " + String(code.suffix(3))
 }
 
 func die(_ msg: String, _ code: Int32 = 2) -> Never {
@@ -67,7 +80,7 @@ func die(_ msg: String, _ code: Int32 = 2) -> Never {
 
 func randomToken(_ bytes: Int) -> String {
     var b = [UInt8](repeating: 0, count: bytes)
-    _ = SecRandomCopyBytes(kSecRandomDefault, bytes, &b)
+    guard SecRandomCopyBytes(kSecRandomDefault, bytes, &b) == errSecSuccess else { die("no secure random bytes available", 1) }
     return b.map { String(format: "%02x", $0) }.joined()
 }
 
@@ -327,7 +340,7 @@ func hasTerminal() -> Bool {
     return isatty(0) == 1 && isatty(1) == 1
 }
 
-func guardPairingChange(_ action: String) async {
+func guardPairingChange(_ action: String, terminalCanApprove: Bool = true) async {
     #if APPROVE_TEST
     let needTerminal = ProcessInfo.processInfo.environment["APPROVE_TEST_TTY"] == "1"
     #else
@@ -343,15 +356,18 @@ func guardPairingChange(_ action: String) async {
     fflush(stdout)
     switch await request(cli: "approve", args: Array(CommandLine.arguments.dropFirst())) {
     case 0: settingsChangeApproved = true
-    case 3 where hasTerminal(): break // no Touch ID and not paired: typing it in a terminal is the approval
-    case 3: die("`approve \(action)` needs Touch ID or a terminal; run it yourself in a terminal", 1)
+    // No Touch ID and not paired: typing it in a terminal is the approval, because the save that
+    // follows still goes through sudo or the admin prompt. Secret writes have no such second step.
+    case 3 where terminalCanApprove && hasTerminal(): break
+    case 3 where terminalCanApprove: die("`approve \(action)` needs Touch ID or a terminal; run it yourself in a terminal", 1)
+    case 3: die("`approve \(action)` needs Touch ID or the phone; neither is available", 1)
     default: die("not approved; nothing changed", 1)
     }
 }
 
 func pair(server: String, png: Bool, showLink: Bool) async {
-    // The link holds the pairing key; printed to a program's output, that program could pair itself.
-    if showLink, !hasTerminal() { die("--link prints the pairing key; use it only in a terminal", 1) }
+    // The link and QR hold the pairing key, and a program running as you can read them (its own
+    // output, pair.png). That is why saving a phone's key asks again, showing that phone's code.
     await guardPairingChange("pair")
     // The new key stays in memory until the phone has answered: nothing on disk for another
     // process to read and race the real phone with.
@@ -394,13 +410,21 @@ func pair(server: String, png: Bool, showLink: Bool) async {
                 guard verify(msg["sig"] as? String, over: challenge, test) else {
                     print("Ignored a pairing reply with a bad signature."); continue
                 }
-                c = test
-                c.phoneName = msg["name"] as? String ?? "phone"
-                c.pairedAt = ISO8601DateFormatter().string(from: Date())
-                do { try saveConfig(c) } catch {
-                    print("Could not save the pairing: \(error.localizedDescription)"); return false
+                test.phoneName = visible(String((msg["name"] as? String ?? "phone").prefix(40)))
+                test.pairedAt = ISO8601DateFormatter().string(from: Date())
+                print("A phone answered with pairing code \(pairingCode(pk)) (it says it is \(test.phoneName ?? "phone")).")
+                print("Approve only if your phone shows the same code.")
+                fflush(stdout)
+                // Ask again for this exact key, even if starting the pairing was approved.
+                settingsChangeApproved = false
+                do { try saveConfig(test) } catch {
+                    print("Not paired with that phone (\(error.localizedDescription)). Still waiting for your phone...")
+                    fflush(stdout)
+                    continue
                 }
-                try? await publish(c.reqTopic, ["type": "paired", "mac": Host.current().localizedName ?? "Mac"], c)
+                c = test
+                try? await publish(c.reqTopic, ["type": "paired", "mac": Host.current().localizedName ?? "Mac",
+                                                "code": pairingCode(pk)], c)
                 return true
             }
             return false
@@ -471,7 +495,8 @@ func request(cli: String, args: [String], summary: String? = nil) async -> Int32
     var callerKind = "terminal", callerLabel = "Your terminal"
     if let sid = env["CLAUDE_CODE_SESSION_ID"] {
         callerKind = "claude"
-        callerLabel = "Claude: " + (sessionTitle(sid) ?? "session \(sid.prefix(8))")
+        // The title comes from a file the caller can write: escape it so it cannot add prompt lines.
+        callerLabel = "Claude: " + visible(String((sessionTitle(sid) ?? "session \(sid.prefix(8))").prefix(80)))
     }
     // The caller sets APPROVE_REASON: escape it so it cannot add fake lines to the prompt.
     let reason = summary ?? env["APPROVE_REASON"].map { visible(String($0.prefix(300))) }

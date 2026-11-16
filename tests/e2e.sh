@@ -61,8 +61,6 @@ out=$("$bin" pair --server "$server" < /dev/null 2>&1); rc=$?
 check "first pairing without Touch ID or a terminal is refused" "1 yes no" "$rc $(yn grep -q 'needs Touch ID or a terminal' <<<"$out") $(yn test -e "$sys/config.json")"
 out=$(APPROVE_TEST_MAC=deny "$bin" pair --server "$server" < /dev/null 2>&1); rc=$?
 check "first pairing denied on the Mac is refused, and the Mac was asked with the full command" "1 yes no" "$rc $(yn grep -q 'TESTMAC.*approve pair --server' <<<"$out") $(yn test -e "$sys/config.json")"
-out=$(APPROVE_TEST_TERMINAL='' "$bin" pair --link --server "$server" < /dev/null 2>&1); rc=$?
-check "pair --link into a program's output is refused" "1 yes" "$rc $(yn grep -q 'only in a terminal' <<<"$out")"
 APPROVE_TEST_TERMINAL=1 "$bin" pair --link --server "$server" > "$work/pair.out" 2>&1 &
 for _ in $(seq 40); do grep -q '^PAIRLINK ' "$work/pair.out" 2>/dev/null && break; sleep 0.5; done
 check "no key on disk while waiting for the phone" no "$(yn test -e "$sys/config.json" -o -e "$work/config/pair.png")"
@@ -71,6 +69,7 @@ for _ in $(seq 30); do grep -q '^Paired with' "$work/pair.out" && break; sleep 1
 check "pair output has no warnings" 0 "$(grep -c colorspace "$work/pair.out")"
 check "pair prints a QR code" yes "$(yn grep -q '█' "$work/pair.out")"
 check "paired, saved in the system folder" "yes 640" "$(yn grep -q '^Paired with fakephone' "$work/pair.out") $(stat -f %Lp "$sys/config.json" 2>/dev/null)"
+check "the Mac shows the phone's pairing code before saving" yes "$(yn grep -q '^A phone answered with pairing code [0-9]\{3\} [0-9]\{3\} ' "$work/pair.out")"
 
 # Secrets: stored in the Keychain, only this binary reads them.
 serve approve
@@ -167,9 +166,11 @@ check "_install refuses a file that changed after approval" "2 yes no" "$rc $(yn
 jq '.clis.rd.free += ["jobs purge*"]' "$sys/rules.json" > "$work/new-rules.json"
 "$bin" rules install "$work/new-rules.json" > /dev/null 2>&1
 check "rules install replaces the rules (644)" "yes 644" "$(yn grep -q 'jobs purge' "$sys/rules.json") $(stat -f %Lp "$sys/rules.json")"
-jq '.clis.newtool = {"free": []} | .clis["../escape"] = {"free": []}' "$work/new-rules.json" > "$work/new-rules2.json"
+jq '.clis.newtool = {"free": []}' "$work/new-rules.json" > "$work/new-rules2.json"
 "$bin" rules install "$work/new-rules2.json" > /dev/null 2>&1
-check "rules install creates a new command's home, not a bad name's" "yes no" "$(yn test -d "$sys/home/newtool") $(yn test -e "$sys/escape")"
+jq '.clis["../escape"] = {"free": []}' "$work/new-rules.json" > "$work/new-rules3.json"
+"$bin" rules install "$work/new-rules3.json" > /dev/null 2>&1
+check "rules install creates a new command's home; a path-like name is refused" "yes no" "$(yn test -d "$sys/home/newtool") $(yn test -e "$sys/escape")"
 "$bin" rules install "$work/new-rules.json" > /dev/null 2>&1
 
 # approve rules: every change the Settings window makes, from the command line.
@@ -293,6 +294,26 @@ jq '.clis.newtool2 = {"free": ["*"], "path": "/bin/echo", "env": {"K": "secret:x
 serve approve
 "$sysbin" rules install "$work/inst.json" < /dev/null > "$work/h1b.out" 2>&1
 check "helper: rules install names what it changes" "yes yes" "$(yn grep -qF 'change its rules: gate newtool2 (path' "$work/phone.log") $(yn grep -qF 'EVERYTHING FREE' "$work/phone.log")"
+# The summary shows old and new values, changes to existing commands first; too long is refused.
+jq '.clis.stripe.default = "free" | .clis.stripe.env.STRIPE_API_BASE = "https://evil.example"' "$sys/rules.json" > "$work/inst2.json"
+serve deny
+"$sysbin" rules install "$work/inst2.json" < /dev/null > "$work/h1d.out" 2>&1
+check "helper: summary names the new values and EVERYTHING FREE" "yes yes" "$(yn grep -qF 'stripe: default gated -> free' "$work/phone.log") $(yn grep -qF 'EVERYTHING FREE' <(grep 'stripe: default' "$work/phone.log"))"
+jq '.clis += ([range(30)] | map({key: "padcli\(.)", value: {free: []}}) | from_entries) | .clis.stripe.free += ["*"]' "$sys/rules.json" > "$work/inst3.json"
+out=$("$sysbin" rules install "$work/inst3.json" < /dev/null 2>&1); rc=$?
+check "helper: a summary too long for the prompt is refused, not cut" "1 yes" "$rc $(yn grep -q 'too long to show' <<<"$out")"
+out=$(jq '.clis["bad name"] = {free: []}' "$sys/rules.json" > "$work/inst4.json"; "$sysbin" rules install "$work/inst4.json" < /dev/null 2>&1); rc=$?
+check "rules install refuses a bad command name" "2 yes" "$rc $(yn grep -q 'is not a command name' <<<"$out")"
+# Pairing another key asks again, naming that key's code; denying it keeps the current pairing.
+pk_before=$(jq -r .phonePublicKey "$sys/config.json")
+serve approve
+"$sysbin" pair --link --server "$server" < /dev/null > "$work/h1c.out" 2>&1 &
+for _ in $(seq 40); do grep -q '^PAIRLINK ' "$work/h1c.out" 2>/dev/null && break; sleep 0.5; done
+serve deny
+"$phone" "$(sed -n 's/^PAIRLINK //p' "$work/h1c.out")" "$work/phone2.json" pair > /dev/null 2>&1
+for _ in $(seq 30); do grep -q 'Not paired with that phone' "$work/h1c.out" && break; sleep 0.5; done
+pkill -f "$sysbin pair --link" 2>/dev/null
+check "helper: a new phone's key needs its own approval, showing its code; denied keeps the pairing" "yes yes yes" "$(yn grep -q '"reason":"pairing code [0-9]\{3\} [0-9]\{3\}: approve only if your phone shows this code' "$work/phone.log") $(yn grep -q 'Not paired with that phone' "$work/h1c.out") $(yn test "$(jq -r .phonePublicKey "$sys/config.json")" = "$pk_before")"
 serve deny
 "$sysbin" rules enable stripe < /dev/null > "$work/h2.out" 2>&1; rc=$?
 check "helper: declined change not written" "1 true yes" "$rc $(j .clis.stripe.disabled) $(yn grep -q 'declined' "$work/h2.out")"
@@ -317,7 +338,7 @@ serve approve
 check "helper: refuses when the installed approve lacks the hardened runtime" "yes true" "$(yn grep -q 'hardened runtime' "$work/h5.out") $(j .clis.stripe.disabled)"
 pkill -f "$sysbin _helper"; sleep 0.3; rm -f "$work/config/helper.sock"
 cp "$work/rules.saved" "$sys/rules.json"
-[ "$fail" = 0 ] || { echo "--- helper log:"; cat "$work/helper.log"; echo "--- phone reasons:"; grep -o "\"reason\":\"[^\"]*" "$work/phone.log" | tail -5; for f in h1 h1b h2 h3 h4 h5; do echo "--- $f:"; cat "$work/$f.out"; done; }
+[ "$fail" = 0 ] || { echo "--- helper log:"; cat "$work/helper.log"; echo "--- phone reasons:"; grep -o "\"reason\":\"[^\"]*" "$work/phone.log" | tail -5; for f in h1 h1b h1c h2 h3 h4 h5; do echo "--- $f:"; cat "$work/$f.out"; done; }
 
 # Changing the pairing needs an approval.
 serve deny
@@ -329,6 +350,8 @@ check "unpair denied: still paired" yes "$("$bin" status | yn grep -q '^Paired w
 serve approve
 "$bin" unpair > "$work/unpair.out" 2>&1
 check "unpair approved: removed from the system folder" "yes no" "$("$bin" status | yn grep -q '^Not paired') $(yn test -e "$sys/config.json")"
+out=$(printf 'x\n' | APPROVE_TEST_TERMINAL=1 "$bin" secret set e2e-unpaired 2>&1); rc=$?
+check "unpaired without Touch ID: a terminal does not approve a secret change" "1 yes no" "$rc $(yn grep -q 'needs Touch ID or the phone' <<<"$out") $("$bin" secret list | yn grep -qx e2e-unpaired)"
 [ "$fail" = 0 ] || { echo "--- unpair output:"; cat "$work/unpair.out"; echo "--- phone log:"; tail -5 "$work/phone.log"; }
 
 # approve setup, root part: into a fresh test folder, from a fake home with rules and a pairing.

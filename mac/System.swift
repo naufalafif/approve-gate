@@ -49,8 +49,15 @@ var settingsChangeApproved = false
 /// Writes (or with nil, removes) a settings file. System mode: through the settings helper after
 /// Approve Gate's own approval (Touch ID or phone), or, without the helper, `sudo approve _install`.
 /// `reason` names the change in the prompt ("Approve Gate wants to …"), so you see what you allow.
+let settingsReasonLimit = 400
+
 func writeSettings(_ data: Data?, _ path: String, reason: String = "change its settings") throws {
-    let reason = String(visible(reason).prefix(300))
+    // The reason is all the approver sees of the change: never cut it, refuse instead.
+    let reason = visible(reason)
+    guard reason.count <= settingsReasonLimit else {
+        throw NSError(domain: "approve", code: 1, userInfo: [NSLocalizedDescriptionKey:
+            "this change is too long to show in one approval (\(reason.count) characters, at most \(settingsReasonLimit)); make it in smaller steps"])
+    }
     if !systemMode {
         try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])

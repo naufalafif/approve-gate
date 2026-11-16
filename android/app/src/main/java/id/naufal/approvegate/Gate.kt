@@ -151,8 +151,19 @@ object Gate {
         if (code >= 300) throw IllegalStateException("relay returned HTTP $code")
     }
 
-    /** Blocking: polls the request topic for the Mac's "paired" reply. */
-    fun waitForPaired(p: Pairing, since: Long, timeoutMs: Long): Boolean {
+    /** Six-digit code for a public key (its Base64 text), shown on both the phone and the Mac so the
+     *  owner can check the Mac is pairing this phone and not another key. Same formula as the Mac. */
+    fun pairingCode(publicKeyB64: String): String {
+        val h = java.security.MessageDigest.getInstance("SHA-256").digest("approvegate-pair-code:$publicKeyB64".toByteArray())
+        val n = ((h[0].toLong() and 0xff) shl 24) or ((h[1].toLong() and 0xff) shl 16) or
+            ((h[2].toLong() and 0xff) shl 8) or (h[3].toLong() and 0xff)
+        val code = String.format(Locale.US, "%06d", n % 1_000_000)
+        return code.substring(0, 3) + " " + code.substring(3)
+    }
+
+    /** Blocking: polls the request topic for the Mac's "paired" reply. Returns true only if the Mac
+     *  saved this phone's key (its code is in the reply), false if it saved another or timed out. */
+    fun waitForPaired(p: Pairing, since: Long, timeoutMs: Long, code: String): Boolean {
         val end = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < end) {
             runCatching {
@@ -162,7 +173,11 @@ object Gate {
                     for (line in lines) {
                         val ev = runCatching { JSONObject(line) }.getOrNull() ?: continue
                         val plain = open(p.key, ev.optString("message")) ?: continue
-                        if (runCatching { JSONObject(String(plain)).optString("type") }.getOrNull() == "paired") return true
+                        val msg = runCatching { JSONObject(String(plain)) }.getOrNull() ?: continue
+                        if (msg.optString("type") != "paired") continue
+                        // Older Macs send no code; newer ones name the key they saved.
+                        val saved = msg.optString("code")
+                        return saved.isEmpty() || saved == code
                     }
                 }
             }

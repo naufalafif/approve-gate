@@ -17,13 +17,15 @@ protocol, what it does and does not protect against, every command, and the chec
 ## How an approval is trusted
 
 - **Pairing.** `approve pair` makes a random AES-256 key and two random relay topics and shows them
-  in a QR code. The key is held in memory until the phone answers, so nothing on disk can be read and
-  raced. The phone creates a P-256 key in the Android Keystore (StrongBox when available) that needs
-  a fresh strong-biometric match for every signature and is invalidated when fingerprints change. It
-  sends the public half, signed by that key, and the Mac saves it.
-- **Changing the pairing.** `approve pair` and `approve unpair` only run in a real terminal, and when a
-  phone is already paired they need an approval first. A script or agent cannot swap in a phone it
-  controls by running them.
+  in a QR code. The phone creates a P-256 key in the Android Keystore (StrongBox when available) that
+  needs a fresh strong-biometric match for every signature and is invalidated when fingerprints
+  change. It sends the public half, signed by that key, and shows a six-digit pairing code derived
+  from it. The Mac shows the code of the key it received and asks you to approve saving it: approve
+  only if both codes match. The QR code and link can be read by a program running as you (its own
+  output, `pair.png`), so a program could answer with its own key; it would show a different code.
+  The Mac's confirmation names the code it saved, and the phone keeps the pairing only if it is its own.
+- **Changing the pairing.** Starting `approve pair` or `approve unpair` asks first (Touch ID, or the
+  phone when one is paired), and saving a new phone asks again with its code.
 - **Requests.** Each request is encrypted with the shared key, so the relay (ntfy.sh by default) only
   sees ciphertext. Control and invisible characters in the command are shown as `\u{…}`, and a
   very long command says how many characters are not shown.
@@ -62,7 +64,10 @@ A program running as you can do anything your account can. Two features take tha
    "VAULT_ADDR": "https://vault.example.com"}`. approve then hands the secret to the real CLI only
    after the rules or your approval allow the call, with a clean environment and an isolated HOME, so
    neither `PATH`, environment variables nor files in your home can send it elsewhere. Flags that point
-   a CLI at another server go in `gatedArgs`, so they always ask.
+   a CLI at another server or config go in `gatedArgs`, so they always ask; a single-letter pattern such
+   as `-u*` also catches that letter in a cluster of short flags (`-vu URL`). In system mode the CLI's
+   path and every folder on it must be root-owned, and approve runs the resolved file it checked.
+   Secret changes (`approve secret set|rm`) need Touch ID or the phone; a terminal alone is not enough.
 
 With both in place, calling the real CLI directly gets no credential, reading the Keychain item
 shows a password prompt, changing the rules or the pairing needs your fingerprint, and changing the binary needs sudo.
@@ -92,7 +97,8 @@ shows a password prompt, changing the rules or the pairing needs your fingerprin
 - **Who asks.** The prompt's "From" line comes from the caller's environment
   (`CLAUDE_CODE_SESSION_ID`) and "Why" from `APPROVE_REASON`; a caller can leave them out or word them
   as it likes. The command line and, for settings changes, the summary are what Approve Gate itself
-  computed.
+  computed. A rules summary lists changes to existing commands first, with old and new values, and
+  flags EVERYTHING FREE; a summary too long for the prompt (over 400 characters) is refused, never cut.
 - **The pairing key.** In system mode the relay key in `config.json` is readable by your user, since
   every gated call needs it. A program running as you can read requests and send prompts to the
   phone, but cannot approve: approvals are signed by the phone's hardware key.
@@ -100,8 +106,12 @@ shows a password prompt, changing the rules or the pairing needs your fingerprin
 - **Your own relay.** The relay in `relay/` accepts any topic without limits. Deploy it on an account
   where that is acceptable, or add a rate limit.
 - **Pairing.** Pairing or unpairing always asks first (Touch ID, or the phone when paired; typing it
-  in a terminal when neither exists). `approve setup` never imports a pairing from your home folder:
-  pair again after setup.
+  in a terminal when neither exists, after which saving still goes through sudo or the admin prompt).
+  Check the pairing code on both screens. `approve setup` never imports a pairing from your home
+  folder: pair again after setup.
+- **Secrets in the running CLI.** A brokered secret is in the environment of the CLI process, which runs
+  as you. Whether another program running as you can read it (`ps eww`) depends on macOS; treat a
+  broker secret as reachable by your user while its CLI runs.
 
 Also note:
 

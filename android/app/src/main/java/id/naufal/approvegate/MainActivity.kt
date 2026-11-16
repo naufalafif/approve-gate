@@ -170,16 +170,22 @@ class MainActivity : AppCompatActivity() {
                 val sig = s.sign()
                 val pr = Gate.Pairing(server, req, res, key, mac)
                 val since = System.currentTimeMillis() / 1000 - 5
+                val pubB64 = Base64.encodeToString(pub, Base64.NO_WRAP)
+                val code = Gate.pairingCode(pubB64)
+                val waiting = AlertDialog.Builder(this@MainActivity).setTitle("Pairing code: $code")
+                    .setMessage("The Mac now asks you to confirm pairing. Approve it only if it shows this same code.")
+                    .setCancelable(false).show()
                 thread {
                     val err = runCatching {
                         Gate.post(pr, JSONObject().put("type", "pair").put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
-                            .put("publicKey", Base64.encodeToString(pub, Base64.NO_WRAP))
+                            .put("publicKey", pubB64)
                             .put("sig", Base64.encodeToString(sig, Base64.NO_WRAP)))
                         // Commit only once the Mac confirms it saved this key.
-                        if (!Gate.waitForPaired(pr, since, 20_000)) throw IllegalStateException(
-                            "the Mac did not confirm. Run `approve pair` on the Mac and scan its new code.")
+                        if (!Gate.waitForPaired(pr, since, 180_000, code)) throw IllegalStateException(
+                            "the Mac did not confirm this phone (code $code). Run `approve pair` on the Mac and scan its new code.")
                     }.exceptionOrNull()
                     runOnUiThread {
+                        waiting.dismiss()
                         if (err != null) {
                             Gate.deleteKey(alias)
                             AlertDialog.Builder(this@MainActivity).setTitle("Not paired")

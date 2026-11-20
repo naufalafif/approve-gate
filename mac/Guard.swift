@@ -113,8 +113,12 @@ func guardDecision(_ command: String, productionContexts: Set<String>, activeCon
     if writesProtected(c) {
         return ("deny", "changes Approve Gate's own files (rules, pairing, links, binary, or the Claude Code settings that hold the hook)")
     }
+    // Reading a secret asks (you approve the read); changing or deleting one stays blocked.
+    if matches(#"\bsecurity\s+find-generic-password\b.*approve-gate"#, c) {
+        return ("ask", "reads one of Approve Gate's Keychain secrets")
+    }
     if matches(#"\bsecurity\s+\S+.*approve-gate"#, c) {
-        return ("deny", "touches Approve Gate's Keychain secrets")
+        return ("deny", "changes Approve Gate's Keychain secrets")
     }
     if c.contains("api.hetzner.cloud") {
         return ("deny", "calls the Hetzner API directly, which skips the hcloud context guard")

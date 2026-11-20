@@ -48,7 +48,7 @@ allow	jq -r .server ~/.config/approve-gate/config.json > /tmp/server.txt
 deny	cat /tmp/x >> ~/.config/approve-gate/rules.json
 deny	cd /tmp && sudo cp evil "/Library/Application Support/ApproveGate/rules.json"
 allow	jq -r '.hooks.PreToolUse[] | .matcher + " -> " + .hooks[0].command' ~/.claude/settings.json
-deny	security find-generic-password -s approve-gate -a vault-token -w
+ask	security find-generic-password -s approve-gate -a vault-token -w
 deny	security delete-generic-password -s approve-gate -a vault-token
 deny	printf '{"disableAllHooks": true}' > .claude/settings.local.json
 allow	cp "/Library/Application Support/ApproveGate/rules.json" /tmp/rules-backup.json
